@@ -104,8 +104,11 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.andrea_lyz.assistrestore.AssistConfig
+import io.github.andrea_lyz.assistrestore.RootShellReceiver
 import io.github.libxposed.service.XposedService
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 
@@ -137,7 +140,13 @@ private fun loadChoices(store: SettingsStore): List<TargetChoice> = ENTRY_IDS.ma
     when (store.mode(entry)) {
         AssistConfig.MODE_CTS -> TargetChoice.CircleToSearch
         AssistConfig.MODE_APP -> TargetChoice.App(store.targetPackage(entry))
-        AssistConfig.MODE_CUSTOM -> TargetChoice.Custom(store.targetPackage(entry))
+        AssistConfig.MODE_CUSTOM -> TargetChoice.Custom(
+            if (store.targetMethod(entry) == AssistConfig.METHOD_SHELL) {
+                "Root Shell"
+            } else {
+                store.targetPackage(entry)
+            }
+        )
         AssistConfig.MODE_OEM -> TargetChoice.Oem
         AssistConfig.MODE_NONE -> TargetChoice.None
         else -> TargetChoice.FollowDefault
@@ -1004,13 +1013,16 @@ private fun CustomTargetScreen(
         AssistConfig.METHOD_AUTO,
         AssistConfig.METHOD_ASSIST,
         AssistConfig.METHOD_INTENT,
+        AssistConfig.METHOD_SHELL,
     )
-    val methodLabels = listOf("自动", "ACTION_ASSIST", "显式 Intent")
+    val methodLabels = listOf("自动", "ACTION_ASSIST", "显式 Intent", "Root Shell (su)")
     var methodIndex by remember {
         mutableIntStateOf(methods.indexOf(store.targetMethod(entry)).coerceAtLeast(0))
     }
     var pasted by remember { mutableStateOf("") }
     var menuOpen by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val isShell = methods[methodIndex] == AssistConfig.METHOD_SHELL
 
     AppScreen(title = "自定义目标", snackbarHost = snackbarHost, onBack = onBack) { modifier ->
         Column(modifier.padding(horizontal = 16.dp)) {
@@ -1137,7 +1149,11 @@ private fun CustomTargetScreen(
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = "自动：优先该应用声明的助理活动；显式 Intent：按下面的组件与参数启动",
+                    text = if (isShell) {
+                        "Root Shell：由模块 APK 执行 su -c；包名和组件字段会被忽略。"
+                    } else {
+                        "自动：优先该应用声明的助理活动；显式 Intent：按下面的组件与参数启动"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 16.dp),
@@ -1149,14 +1165,46 @@ private fun CustomTargetScreen(
             OutlinedTextField(
                 value = intentArgs,
                 onValueChange = { intentArgs = it },
-                label = { Text("Intent 参数") },
+                label = { Text(if (isShell) "Shell 指令" else "Intent 参数") },
                 supportingText = {
-                    Text("action=heytap.intent.action.ACTIVATE_SPEECH_ASSIST · start_type=91")
+                    Text(
+                        if (isShell) {
+                            "例如 sudo am start -n com.agent.mobileuse/.DemoDialogActivity；sudo 会自动转换为 su -c"
+                        } else {
+                            "action=heytap.intent.action.ACTIVATE_SPEECH_ASSIST · start_type=91"
+                        }
+                    )
                 },
                 leadingIcon = { Icon(Icons.Rounded.DataObject, contentDescription = null) },
-                singleLine = true,
+                singleLine = !isShell,
+                minLines = if (isShell) 2 else 1,
+                maxLines = if (isShell) 5 else 1,
                 modifier = Modifier.fillMaxWidth(),
             )
+
+            if (isShell) {
+                Spacer(Modifier.height(12.dp))
+                Button(
+                    onClick = {
+                        scope.launch {
+                            val granted = withContext(Dispatchers.IO) {
+                                RootShellReceiver.requestRoot()
+                            }
+                            notify(
+                                if (granted) "Root 权限可用（uid=0）"
+                                else "Root 权限不可用、被拒绝或 su 不存在"
+                            )
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                ) {
+                    Icon(Icons.Rounded.LockOpen, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("申请 / 检查 Root 权限")
+                }
+            }
 
             Spacer(Modifier.height(24.dp))
 
@@ -1165,12 +1213,15 @@ private fun CustomTargetScreen(
                     store.setTarget(
                         entry = entry,
                         mode = AssistConfig.MODE_CUSTOM,
-                        packageName = packageName.trim(),
-                        component = component.trim(),
+                        packageName = if (isShell) "" else packageName.trim(),
+                        component = if (isShell) "" else component.trim(),
                         method = methods[methodIndex],
                         args = intentArgs.trim(),
                     )
-                    notify("已保存：该入口改为自定义目标")
+                    notify(
+                        if (isShell) "已保存：该入口改为 Root Shell"
+                        else "已保存：该入口改为自定义目标"
+                    )
                     notify(
                         "已保存：" + store.mode(entry) +
                             " · " + store.targetPackage(entry) +
