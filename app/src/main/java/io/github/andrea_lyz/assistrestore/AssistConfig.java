@@ -36,12 +36,16 @@ public final class AssistConfig {
     public static final String METHOD_AUTO = "auto";
     public static final String METHOD_ASSIST = "assist";
     public static final String METHOD_INTENT = "intent";
+    /** Execute the custom argument field as a root shell command through the module app. */
+    public static final String METHOD_SHELL = "shell";
 
     public static final String KEY_ENABLED = "enabled";
     public static final String KEY_SKIP_OCR_PRELOAD = "skip_ocr_preload";
     public static final String KEY_UNBLOCK_PAGE_FLAGS = "unblock_page_flags";
     public static final String KEY_SPOOF_GOOGLE_BUILD = "spoof_google_build";
     public static final String KEY_HANDLE_WHEN_BAR_HIDDEN = "handle_when_bar_hidden";
+    /** Shared nonce used to authenticate SystemUI -> module root-shell broadcasts. */
+    public static final String KEY_SHELL_TOKEN = "shell_token";
 
     public static final boolean DEFAULT_ENABLED = true;
     public static final boolean DEFAULT_SKIP_OCR_PRELOAD = true;
@@ -75,6 +79,10 @@ public final class AssistConfig {
 
     public static String targetArgs(SharedPreferences prefs, String entry) {
         return prefs == null ? "" : prefs.getString(entry + "_args", "");
+    }
+
+    public static String shellToken(SharedPreferences prefs) {
+        return prefs == null ? "" : prefs.getString(KEY_SHELL_TOKEN, "");
     }
 
     public static boolean skipOcrPreload(SharedPreferences prefs) {
