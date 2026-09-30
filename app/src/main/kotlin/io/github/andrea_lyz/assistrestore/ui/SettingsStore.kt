@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import io.github.andrea_lyz.assistrestore.AssistConfig
 import io.github.libxposed.service.XposedService
+import java.util.UUID
 
 /**
  * Reads and writes the configuration the hooks consume.
@@ -19,6 +20,15 @@ class SettingsStore(context: Context) {
 
     private val fallback: SharedPreferences =
         context.getSharedPreferences(AssistConfig.PREFS, Context.MODE_PRIVATE)
+
+    init {
+        // The shell executor runs in the module app, while the trigger lives in injected SystemUI.
+        // A random nonce prevents other apps from abusing the exported receiver as a root gateway.
+        if (fallback.getString(AssistConfig.KEY_SHELL_TOKEN, "").isNullOrEmpty()) {
+            val token = UUID.randomUUID().toString() + UUID.randomUUID().toString()
+            fallback.edit().putString(AssistConfig.KEY_SHELL_TOKEN, token).apply()
+        }
+    }
 
     var frameworkConnected: Boolean = false
         private set
