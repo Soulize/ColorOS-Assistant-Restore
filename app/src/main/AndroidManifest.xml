@@ -49,6 +49,12 @@
             </intent-filter>
         </activity>
 
+        <!-- Explicit-only bridge from injected SystemUI back into the module process. The
+             receiver authenticates every request with a random nonce before invoking su. -->
+        <receiver
+            android:name=".RootShellReceiver"
+            android:exported="true" />
+
         <activity-alias
             android:name=".LauncherEntry"
             android:exported="true"
