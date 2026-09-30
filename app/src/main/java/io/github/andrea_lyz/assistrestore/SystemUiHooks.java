@@ -1322,6 +1322,15 @@ final class SystemUiHooks {
     private static boolean startConfiguredTarget(
             AssistRestoreModule module, Context context, String entry, AssistPipeline pipeline,
             Object assistManager) {
+        String mode = AssistConfig.mode(HookPrefs.get(), entry);
+        String method = AssistConfig.targetMethod(HookPrefs.get(), entry);
+        if (AssistConfig.MODE_CUSTOM.equals(mode) && AssistConfig.METHOD_SHELL.equals(method)) {
+            dispatchRootShell(module, context, entry);
+            // Shell is an explicit custom target. Even if it is misconfigured, do not surprise the
+            // user by falling through and launching the default assistant instead.
+            return true;
+        }
+
         String packageName = AssistConfig.targetPackage(HookPrefs.get(), entry);
         if (context == null || packageName.isEmpty()) {
             module.logWarn("target_start_skipped entry=" + entry
@@ -1349,6 +1358,38 @@ final class SystemUiHooks {
         } catch (Throwable t) {
             module.logWarn("target_start_failed entry=" + entry + " " + t);
             return false;
+        }
+    }
+
+    /** Sends a root-shell request to the module APK, which owns the actual su permission. */
+    private static void dispatchRootShell(
+            AssistRestoreModule module, Context context, String entry) {
+        if (context == null) {
+            module.logWarn("root_shell_skipped entry=" + entry + " reason=no_context");
+            return;
+        }
+        String command = AssistConfig.targetArgs(HookPrefs.get(), entry);
+        String token = AssistConfig.shellToken(HookPrefs.get());
+        if (command == null || command.trim().isEmpty()) {
+            module.logWarn("root_shell_skipped entry=" + entry + " reason=no_command");
+            return;
+        }
+        if (token == null || token.isEmpty()) {
+            module.logWarn("root_shell_skipped entry=" + entry + " reason=no_token_open_module_once");
+            return;
+        }
+        try {
+            Intent request = new Intent(RootShellReceiver.ACTION_EXECUTE_ROOT_SHELL)
+                    .setClassName(RootShellReceiver.MODULE_PACKAGE,
+                            RootShellReceiver.class.getName())
+                    .putExtra(RootShellReceiver.EXTRA_COMMAND, command)
+                    .putExtra(RootShellReceiver.EXTRA_TOKEN, token)
+                    .addFlags(Intent.FLAG_RECEIVER_FOREGROUND);
+            context.sendBroadcast(request);
+            module.logInfo("root_shell_dispatched entry=" + entry
+                    + " command_length=" + command.length());
+        } catch (Throwable t) {
+            module.logWarn("root_shell_dispatch_failed entry=" + entry + " " + t);
         }
     }
 
